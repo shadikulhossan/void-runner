@@ -1,0 +1,818 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>VOID RUNNER</title>
+<meta name="description" content="A neon synthwave tunnel-runner. Dodge, collect, survive.">
+<meta name="theme-color" content="#05030a">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Void Runner">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Space+Mono:wght@400;700&display=swap');
+
+  :root{
+    --bg: #05030a;
+    --magenta: #ff2bd6;
+    --cyan: #00f0ff;
+    --sun-top: #ffd23f;
+    --sun-bot: #ff5f6d;
+    --ink: #eafcff;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{
+    width:100%; height:100%; overflow:hidden;
+    background:var(--bg);
+    font-family:'Space Mono', monospace;
+    color:var(--ink);
+  }
+  #stage{position:fixed; inset:0;}
+  canvas{display:block;}
+
+  #scanlines{
+    position:fixed; inset:0; pointer-events:none; z-index:5;
+    background:repeating-linear-gradient(
+      to bottom, rgba(0,0,0,0) 0px, rgba(0,0,0,0) 2px,
+      rgba(0,0,0,0.12) 3px, rgba(0,0,0,0) 4px
+    );
+    mix-blend-mode:overlay;
+  }
+  #vignette{
+    position:fixed; inset:0; pointer-events:none; z-index:5;
+    background:radial-gradient(ellipse at center, transparent 40%, rgba(5,3,10,0.9) 100%);
+  }
+
+  #hud{
+    position:fixed; top:0; left:0; right:0; z-index:10;
+    display:flex; justify-content:space-between; align-items:flex-start;
+    padding:22px 28px; pointer-events:none;
+  }
+  .hud-block{display:flex; flex-direction:column; gap:2px;}
+  .hud-label{
+    font-size:10px; letter-spacing:0.3em; color:var(--cyan);
+    opacity:0.7; text-transform:uppercase;
+  }
+  .hud-value{
+    font-family:'Orbitron', sans-serif; font-weight:700;
+    font-size:28px; color:var(--ink);
+    text-shadow:0 0 12px var(--cyan), 0 0 2px var(--cyan);
+  }
+  #speedbar{
+    width:120px; height:5px; background:rgba(255,255,255,0.1);
+    margin-top:6px; border-radius:3px; overflow:hidden;
+  }
+  #speedfill{
+    height:100%; width:20%;
+    background:linear-gradient(90deg, var(--cyan), var(--magenta));
+    box-shadow:0 0 8px var(--magenta);
+    transition:width 0.2s ease;
+  }
+
+  .overlay{
+    position:fixed; inset:0; z-index:20;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    text-align:center; gap:18px;
+    background:radial-gradient(ellipse at center, rgba(20,5,30,0.55) 0%, rgba(5,3,10,0.92) 75%);
+    transition:opacity 0.4s ease;
+  }
+  .hidden{display:none;}
+
+  .title{
+    font-family:'Orbitron', sans-serif; font-weight:900;
+    font-size:clamp(38px, 8vw, 74px);
+    letter-spacing:0.08em;
+    color:var(--ink);
+    background:linear-gradient(180deg, #fff 10%, var(--cyan) 55%, var(--magenta) 100%);
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+    text-shadow:none;
+    filter:drop-shadow(0 0 18px rgba(0,240,255,0.45));
+    line-height:1;
+  }
+  .subtitle{
+    font-size:12px; letter-spacing:0.35em; color:var(--magenta);
+    text-transform:uppercase; opacity:0.85;
+  }
+  .desc{
+    font-size:13px; color:rgba(234,252,255,0.65); max-width:420px;
+    line-height:1.7; letter-spacing:0.02em;
+  }
+  .desc b{color:var(--cyan);}
+
+  .btn{
+    font-family:'Orbitron', sans-serif; font-weight:700;
+    font-size:14px; letter-spacing:0.15em;
+    padding:14px 38px;
+    background:transparent;
+    color:var(--ink);
+    border:1px solid var(--cyan);
+    cursor:pointer;
+    position:relative;
+    text-transform:uppercase;
+    box-shadow:0 0 0 rgba(0,240,255,0);
+    transition:all 0.25s ease;
+    pointer-events:all;
+  }
+  .btn:hover{
+    background:rgba(0,240,255,0.08);
+    box-shadow:0 0 24px rgba(0,240,255,0.5), inset 0 0 12px rgba(0,240,255,0.2);
+    transform:translateY(-1px);
+  }
+  .btn:active{transform:translateY(1px);}
+
+  #finalscore{
+    font-family:'Orbitron', sans-serif; font-weight:700; font-size:20px;
+    color:var(--magenta); text-shadow:0 0 14px var(--magenta);
+  }
+
+  #flash{
+    position:fixed; inset:0; z-index:15; pointer-events:none;
+    background:var(--magenta); opacity:0;
+  }
+
+  #touch-controls{
+    position:fixed; bottom:26px; left:0; right:0; z-index:10;
+    display:none; justify-content:space-between; padding:0 26px;
+  }
+  .touch-btn{
+    width:74px; height:74px; border-radius:50%;
+    border:1px solid var(--cyan);
+    background:rgba(0,240,255,0.06);
+    color:var(--cyan); font-size:26px; font-family:'Orbitron', sans-serif;
+    display:flex; align-items:center; justify-content:center;
+    pointer-events:all; user-select:none; -webkit-user-select:none;
+  }
+  @media (max-width:720px){
+    #touch-controls{display:flex;}
+  }
+
+  #hint{
+    position:fixed; bottom:18px; left:0; right:0; z-index:10;
+    text-align:center; font-size:11px; letter-spacing:0.2em;
+    color:rgba(234,252,255,0.4); pointer-events:none;
+  }
+  @media (max-width:720px){ #hint{display:none;} }
+
+  #ctrlbar{
+    position:fixed; top:22px; left:50%; transform:translateX(-50%);
+    z-index:11; display:flex; gap:10px; pointer-events:none;
+  }
+  .ctrl-btn{
+    width:38px; height:38px; border-radius:50%;
+    border:1px solid rgba(0,240,255,0.5);
+    background:rgba(5,3,10,0.55);
+    color:var(--cyan); font-size:15px;
+    display:flex; align-items:center; justify-content:center;
+    cursor:pointer; pointer-events:all; user-select:none;
+    transition:all 0.2s ease;
+  }
+  .ctrl-btn:hover{ background:rgba(0,240,255,0.12); box-shadow:0 0 14px rgba(0,240,255,0.4); }
+  .ctrl-btn.off{ color:rgba(234,252,255,0.3); border-color:rgba(234,252,255,0.2); }
+
+  #bestrow{
+    font-size:11px; letter-spacing:0.2em; color:rgba(0,240,255,0.75);
+    margin-top:-6px;
+  }
+  #bestrowGO{
+    font-size:12px; letter-spacing:0.15em; color:rgba(255,43,214,0.85);
+    margin-top:-8px;
+  }
+  #pauseScreen .title{ font-size:clamp(30px,6vw,54px); }
+</style>
+</head>
+<body>
+
+<div id="stage"></div>
+<div id="scanlines"></div>
+<div id="vignette"></div>
+<div id="flash"></div>
+
+<div id="hud">
+  <div class="hud-block">
+    <div class="hud-label">Distance</div>
+    <div class="hud-value" id="scoreVal">0000</div>
+  </div>
+  <div class="hud-block" style="align-items:flex-end;">
+    <div class="hud-label">Velocity</div>
+    <div class="hud-value" id="speedVal">1.0x</div>
+    <div id="speedbar"><div id="speedfill"></div></div>
+  </div>
+</div>
+
+<div id="ctrlbar">
+  <div class="ctrl-btn" id="muteBtn" title="Mute">🔊</div>
+  <div class="ctrl-btn" id="pauseBtn" title="Pause">⏸</div>
+</div>
+
+<div id="hint">← / → OR A / D TO SHIFT LANES &nbsp;·&nbsp; COLLECT CYAN ORBS &nbsp;·&nbsp; AVOID MAGENTA WALLS &nbsp;·&nbsp; P TO PAUSE</div>
+
+<div id="touch-controls">
+  <div class="touch-btn" id="btnLeft">◀</div>
+  <div class="touch-btn" id="btnRight">▶</div>
+</div>
+
+<div class="overlay" id="startScreen">
+  <div class="subtitle">Synthwave Corridor // 2087</div>
+  <div class="title">VOID RUNNER</div>
+  <div class="desc">Pilot the light-cycle through the collapsing corridor.
+    Shift lanes with <b>← →</b> or <b>A D</b>. Every obstacle you dodge
+    accelerates the void. Grab <b>orbs</b> for bonus distance.</div>
+  <div id="bestrow">BEST: 0000</div>
+  <button class="btn" id="startBtn">Enter the Void</button>
+</div>
+
+<div class="overlay hidden" id="pauseScreen">
+  <div class="subtitle" style="color:var(--cyan);">Paused</div>
+  <div class="title">ON HOLD</div>
+  <button class="btn" id="resumeBtn">Resume Run</button>
+</div>
+
+<div class="overlay hidden" id="gameOverScreen">
+  <div class="subtitle" style="color:var(--cyan);">Signal Lost</div>
+  <div class="title" style="font-size:clamp(30px,6vw,54px);">RUN TERMINATED</div>
+  <div id="finalscore">DISTANCE: 0000</div>
+  <div id="bestrowGO">BEST: 0000</div>
+  <button class="btn" id="restartBtn">Re-enter the Void</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ---------- Original in-browser synthwave audio engine (no external files, no copyright) ----------
+const AudioEngine = (function(){
+  let ctx = null, master = null, musicGain = null, sfxGain = null, filterNode = null;
+  let muted = false;
+  let musicOn = false;
+  let timerId = null;
+  let nextNoteTime = 0;
+  let step = 0; // eighth-note step within bar
+  let bar = 0;
+  const BPM = 108;
+  const stepDur = 60/BPM/2;
+  const LOOKAHEAD = 0.12;
+  const INTERVAL = 25; // ms
+
+  // A minor - F - C - G progression
+  const bassRoots = [55.00, 43.65, 65.41, 49.00];
+  const arps = [
+    [220.00,261.63,329.63,440.00],
+    [174.61,220.00,261.63,349.23],
+    [261.63,329.63,392.00,523.25],
+    [196.00,246.94,293.66,392.00]
+  ];
+
+  function ensureCtx(){
+    if(ctx) return;
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    master = ctx.createGain();
+    master.gain.value = 0.9;
+    master.connect(ctx.destination);
+
+    filterNode = ctx.createBiquadFilter();
+    filterNode.type = 'lowpass';
+    filterNode.frequency.value = 2200;
+    filterNode.connect(master);
+
+    musicGain = ctx.createGain();
+    musicGain.gain.value = 0.5;
+    musicGain.connect(filterNode);
+
+    sfxGain = ctx.createGain();
+    sfxGain.gain.value = 0.7;
+    sfxGain.connect(master);
+  }
+
+  function tone(freq, start, dur, type, peak, dest, glideTo){
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, start);
+    if(glideTo) osc.frequency.exponentialRampToValueAtTime(glideTo, start+dur);
+    g.gain.setValueAtTime(0.0001, start);
+    g.gain.exponentialRampToValueAtTime(peak, start+0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, start+dur);
+    osc.connect(g); g.connect(dest);
+    osc.start(start); osc.stop(start+dur+0.05);
+  }
+
+  function kick(start){
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(150, start);
+    osc.frequency.exponentialRampToValueAtTime(40, start+0.22);
+    g.gain.setValueAtTime(0.9, start);
+    g.gain.exponentialRampToValueAtTime(0.001, start+0.28);
+    osc.connect(g); g.connect(musicGain);
+    osc.start(start); osc.stop(start+0.3);
+  }
+
+  function hat(start){
+    const bufSize = ctx.sampleRate*0.05;
+    const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for(let i=0;i<bufSize;i++) data[i] = (Math.random()*2-1);
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const hp = ctx.createBiquadFilter();
+    hp.type='highpass'; hp.frequency.value = 6000;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.18, start);
+    g.gain.exponentialRampToValueAtTime(0.001, start+0.045);
+    src.connect(hp); hp.connect(g); g.connect(musicGain);
+    src.start(start); src.stop(start+0.05);
+  }
+
+  function scheduleStep(t, s, b){
+    const chord = b % 4;
+    const root = bassRoots[chord];
+    const arp = arps[chord];
+    if(s % 8 === 0){
+      tone(root, t, stepDur*7.5, 'sawtooth', 0.16, musicGain);
+    }
+    if(s % 2 === 0){
+      kick(t);
+    }
+    if(s % 2 === 1){
+      hat(t);
+    }
+    const arpNote = arp[Math.floor(s/2) % arp.length];
+    tone(arpNote, t, stepDur*0.9, 'sawtooth', 0.10, musicGain);
+  }
+
+  function scheduler(){
+    while(nextNoteTime < ctx.currentTime + LOOKAHEAD){
+      scheduleStep(nextNoteTime, step, bar);
+      nextNoteTime += stepDur;
+      step++;
+      if(step >= 8){ step = 0; bar++; }
+    }
+  }
+
+  function startMusic(){
+    ensureCtx();
+    if(ctx.state === 'suspended') ctx.resume();
+    if(musicOn) return;
+    musicOn = true;
+    step = 0; bar = 0;
+    nextNoteTime = ctx.currentTime + 0.05;
+    timerId = setInterval(scheduler, INTERVAL);
+  }
+  function stopMusic(){
+    musicOn = false;
+    if(timerId){ clearInterval(timerId); timerId = null; }
+  }
+  function setIntensity(mult){
+    if(!filterNode) return;
+    const target = 1200 + Math.min(mult,3)*900;
+    filterNode.frequency.setTargetAtTime(target, ctx.currentTime, 0.3);
+  }
+
+  function playCollect(){
+    ensureCtx(); if(ctx.state==='suspended') ctx.resume();
+    const t = ctx.currentTime;
+    tone(880, t, 0.12, 'sine', 0.25, sfxGain);
+    tone(1320, t+0.05, 0.14, 'sine', 0.18, sfxGain);
+  }
+  function playSwitch(){
+    ensureCtx(); if(ctx.state==='suspended') ctx.resume();
+    tone(520, ctx.currentTime, 0.06, 'square', 0.08, sfxGain);
+  }
+  function playCrash(){
+    ensureCtx(); if(ctx.state==='suspended') ctx.resume();
+    const t = ctx.currentTime;
+    const bufSize = ctx.sampleRate*0.4;
+    const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for(let i=0;i<bufSize;i++) data[i] = (Math.random()*2-1)*(1-i/bufSize);
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.5, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t+0.4);
+    src.connect(g); g.connect(sfxGain);
+    src.start(t);
+    tone(90, t, 0.4, 'sawtooth', 0.3, sfxGain, 30);
+  }
+  function toggleMute(){
+    ensureCtx();
+    muted = !muted;
+    master.gain.setTargetAtTime(muted?0:0.9, ctx.currentTime, 0.05);
+    return muted;
+  }
+  return { startMusic, stopMusic, setIntensity, playCollect, playSwitch, playCrash, toggleMute, ensureCtx };
+})();
+</script>
+<script>
+(function(){
+  // ---------- Setup ----------
+  const stage = document.getElementById('stage');
+  const scene = new THREE.Scene();
+  const bgColor = 0x05030a;
+  scene.background = new THREE.Color(bgColor);
+  scene.fog = new THREE.Fog(bgColor, 8, 55);
+
+  const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 200);
+  camera.position.set(0, 2.6, 7);
+  camera.lookAt(0,1.2,-20);
+
+  const renderer = new THREE.WebGLRenderer({antialias:true, alpha:false});
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  stage.appendChild(renderer.domElement);
+
+  window.addEventListener('resize', ()=>{
+    camera.aspect = window.innerWidth/window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  // ---------- Lights ----------
+  scene.add(new THREE.AmbientLight(0x332244, 1.2));
+  const magentaLight = new THREE.PointLight(0xff2bd6, 3, 30);
+  magentaLight.position.set(-4, 3, 2);
+  scene.add(magentaLight);
+  const cyanLight = new THREE.PointLight(0x00f0ff, 3, 30);
+  cyanLight.position.set(4, 3, 2);
+  scene.add(cyanLight);
+
+  // ---------- Sun ----------
+  const sunCanvas = document.createElement('canvas');
+  sunCanvas.width = 512; sunCanvas.height = 512;
+  const sctx = sunCanvas.getContext('2d');
+  const grad = sctx.createLinearGradient(0,0,0,512);
+  grad.addColorStop(0, '#ffe66d');
+  grad.addColorStop(0.5, '#ff8a5c');
+  grad.addColorStop(1, '#ff2bd6');
+  sctx.fillStyle = grad;
+  sctx.beginPath();
+  sctx.arc(256,256,240,0,Math.PI*2);
+  sctx.fill();
+  // stripe lines to feel synthwave
+  sctx.globalCompositeOperation = 'destination-out';
+  for(let i=0;i<7;i++){
+    sctx.fillRect(0, 300 + i*22, 512, 6);
+  }
+  const sunTex = new THREE.CanvasTexture(sunCanvas);
+  const sunMat = new THREE.SpriteMaterial({map:sunTex, transparent:true, opacity:0.9});
+  const sun = new THREE.Sprite(sunMat);
+  sun.scale.set(26,26,1);
+  sun.position.set(0, 7, -60);
+  scene.add(sun);
+
+  // ---------- Grid tunnel ----------
+  const LANES = [-2.2, 0, 2.2];
+  const TUNNEL_LEN = 140;
+  const gridGroup = new THREE.Group();
+  scene.add(gridGroup);
+
+  function makeGridPlane(color){
+    const geo = new THREE.PlaneGeometry(20, TUNNEL_LEN, 20, 70);
+    const mat = new THREE.MeshBasicMaterial({color:color, wireframe:true, transparent:true, opacity:0.55});
+    return new THREE.Mesh(geo, mat);
+  }
+  const floor = makeGridPlane(0xff2bd6);
+  floor.rotation.x = -Math.PI/2;
+  floor.position.set(0, 0, -TUNNEL_LEN/2 + 10);
+  gridGroup.add(floor);
+
+  const ceil = makeGridPlane(0x00f0ff);
+  ceil.rotation.x = Math.PI/2;
+  ceil.position.set(0, 7, -TUNNEL_LEN/2 + 10);
+  gridGroup.add(ceil);
+
+  // side glow walls (subtle, non-wireframe, for depth color)
+  const wallGeo = new THREE.PlaneGeometry(TUNNEL_LEN, 7);
+  const wallMatL = new THREE.MeshBasicMaterial({color:0x220022, transparent:true, opacity:0.35, side:THREE.DoubleSide});
+  const wallL = new THREE.Mesh(wallGeo, wallMatL);
+  wallL.rotation.y = Math.PI/2;
+  wallL.position.set(-8, 3.5, -TUNNEL_LEN/2 + 10);
+  scene.add(wallL);
+  const wallR = wallL.clone();
+  wallR.position.set(8, 3.5, -TUNNEL_LEN/2 + 10);
+  scene.add(wallR);
+
+  // ---------- Player ----------
+  const shipGroup = new THREE.Group();
+  const shipGeo = new THREE.ConeGeometry(0.35, 1.1, 4);
+  const shipMat = new THREE.MeshStandardMaterial({
+    color:0x0d1a2b, emissive:0x00f0ff, emissiveIntensity:1.6, metalness:0.6, roughness:0.2
+  });
+  const shipMesh = new THREE.Mesh(shipGeo, shipMat);
+  shipMesh.rotation.x = Math.PI/2;
+  shipGroup.add(shipMesh);
+
+  const glowGeo = new THREE.SphereGeometry(0.5, 16, 16);
+  const glowMat = new THREE.MeshBasicMaterial({color:0x00f0ff, transparent:true, opacity:0.18});
+  const glow = new THREE.Mesh(glowGeo, glowMat);
+  shipGroup.add(glow);
+
+  shipGroup.position.set(0, 1.1, 4.2);
+  scene.add(shipGroup);
+
+  // trail particles
+  const TRAIL_COUNT = 60;
+  const trailGeo = new THREE.BufferGeometry();
+  const trailPositions = new Float32Array(TRAIL_COUNT*3);
+  for(let i=0;i<TRAIL_COUNT;i++){
+    trailPositions[i*3] = shipGroup.position.x;
+    trailPositions[i*3+1] = shipGroup.position.y;
+    trailPositions[i*3+2] = shipGroup.position.z;
+  }
+  trailGeo.setAttribute('position', new THREE.BufferAttribute(trailPositions, 3));
+  const trailMat = new THREE.PointsMaterial({color:0x00f0ff, size:0.12, transparent:true, opacity:0.7});
+  const trail = new THREE.Points(trailGeo, trailMat);
+  scene.add(trail);
+  let trailHistory = [];
+
+  // ---------- Game state ----------
+  let laneIndex = 1;
+  let targetX = LANES[laneIndex];
+  let running = false;
+  let gameOver = true;
+  let score = 0;
+  let speed = 0.32;
+  const baseSpeed = 0.32;
+  let elapsed = 0;
+  let shakeT = 0;
+
+  const scoreVal = document.getElementById('scoreVal');
+  const speedVal = document.getElementById('speedVal');
+  const speedfill = document.getElementById('speedfill');
+  const startScreen = document.getElementById('startScreen');
+  const gameOverScreen = document.getElementById('gameOverScreen');
+  const pauseScreen = document.getElementById('pauseScreen');
+  const finalscore = document.getElementById('finalscore');
+  const flash = document.getElementById('flash');
+  const bestrow = document.getElementById('bestrow');
+  const bestrowGO = document.getElementById('bestrowGO');
+  const muteBtn = document.getElementById('muteBtn');
+  const pauseBtn = document.getElementById('pauseBtn');
+
+  let paused = false;
+  let highScore = 0;
+  try { highScore = parseInt(localStorage.getItem('voidrunner_highscore') || '0', 10) || 0; } catch(e){}
+  function refreshBest(){
+    const txt = 'BEST: ' + String(highScore).padStart(4,'0');
+    bestrow.textContent = txt;
+    bestrowGO.textContent = txt;
+  }
+  refreshBest();
+
+  // ---------- Obstacles & orbs ----------
+  const obstacles = [];
+  const orbs = [];
+  const obstacleGeo = new THREE.BoxGeometry(1.6, 1.6, 0.6);
+  const obstacleMat = new THREE.MeshStandardMaterial({
+    color:0x220015, emissive:0xff2bd6, emissiveIntensity:1.4, metalness:0.4, roughness:0.3
+  });
+  const orbGeo = new THREE.SphereGeometry(0.32, 16, 16);
+  const orbMat = new THREE.MeshStandardMaterial({
+    color:0x003333, emissive:0x00f0ff, emissiveIntensity:2, metalness:0.2, roughness:0.2
+  });
+
+  let spawnTimer = 0;
+  let spawnInterval = 1.1;
+
+  function spawnRow(){
+    // pick pattern: 1 or 2 obstacles blocking lanes, leave at least 1 open
+    const blockedCount = Math.random() < 0.5 ? 1 : 2;
+    const laneIdxs = [0,1,2];
+    for(let i=laneIdxs.length-1;i>0;i--){
+      const j = Math.floor(Math.random()*(i+1));
+      [laneIdxs[i], laneIdxs[j]] = [laneIdxs[j], laneIdxs[i]];
+    }
+    const blocked = laneIdxs.slice(0, blockedCount);
+    const open = laneIdxs.slice(blockedCount);
+
+    blocked.forEach(li=>{
+      const m = new THREE.Mesh(obstacleGeo, obstacleMat);
+      m.position.set(LANES[li], 1.1, -60);
+      scene.add(m);
+      obstacles.push(m);
+    });
+    // chance to place an orb in an open lane
+    if(open.length && Math.random() < 0.65){
+      const li = open[Math.floor(Math.random()*open.length)];
+      const o = new THREE.Mesh(orbGeo, orbMat);
+      o.position.set(LANES[li], 1.1, -60);
+      scene.add(o);
+      orbs.push(o);
+    }
+  }
+
+  function resetGame(){
+    obstacles.forEach(o=>scene.remove(o));
+    orbs.forEach(o=>scene.remove(o));
+    obstacles.length = 0;
+    orbs.length = 0;
+    laneIndex = 1;
+    targetX = LANES[laneIndex];
+    shipGroup.position.x = targetX;
+    score = 0;
+    speed = baseSpeed;
+    elapsed = 0;
+    spawnTimer = 0;
+    spawnInterval = 1.1;
+    trailHistory = [];
+  }
+
+  function startGame(){
+    resetGame();
+    running = true;
+    gameOver = false;
+    paused = false;
+    startScreen.classList.add('hidden');
+    gameOverScreen.classList.add('hidden');
+    pauseScreen.classList.add('hidden');
+    AudioEngine.startMusic();
+  }
+
+  function endGame(){
+    running = false;
+    gameOver = true;
+    AudioEngine.playCrash();
+    AudioEngine.stopMusic();
+    const finalDist = Math.floor(score);
+    finalscore.textContent = 'DISTANCE: ' + String(finalDist).padStart(4,'0');
+    if(finalDist > highScore){
+      highScore = finalDist;
+      try { localStorage.setItem('voidrunner_highscore', String(highScore)); } catch(e){}
+    }
+    refreshBest();
+    gameOverScreen.classList.remove('hidden');
+    shakeT = 0.5;
+    flash.style.transition = 'none';
+    flash.style.opacity = '0.55';
+    requestAnimationFrame(()=>{
+      flash.style.transition = 'opacity 0.5s ease';
+      flash.style.opacity = '0';
+    });
+  }
+
+  function togglePause(){
+    if(!running && !paused) return;
+    paused = !paused;
+    if(paused){
+      pauseScreen.classList.remove('hidden');
+      pauseBtn.textContent = '▶';
+    } else {
+      pauseScreen.classList.add('hidden');
+      pauseBtn.textContent = '⏸';
+    }
+  }
+  pauseBtn.addEventListener('click', togglePause);
+  document.getElementById('resumeBtn').addEventListener('click', togglePause);
+  document.addEventListener('visibilitychange', ()=>{
+    if(document.hidden && running && !paused) togglePause();
+  });
+
+  let isMuted = false;
+  muteBtn.addEventListener('click', ()=>{
+    isMuted = AudioEngine.toggleMute();
+    muteBtn.textContent = isMuted ? '🔇' : '🔊';
+    muteBtn.classList.toggle('off', isMuted);
+  });
+
+  document.getElementById('startBtn').addEventListener('click', startGame);
+  document.getElementById('restartBtn').addEventListener('click', startGame);
+
+  function shiftLane(dir){
+    if(!running || paused) return;
+    const newLane = Math.max(0, Math.min(2, laneIndex+dir));
+    if(newLane !== laneIndex) AudioEngine.playSwitch();
+    laneIndex = newLane;
+    targetX = LANES[laneIndex];
+  }
+  window.addEventListener('keydown', (e)=>{
+    if(e.key==='ArrowLeft' || e.key==='a' || e.key==='A') shiftLane(-1);
+    if(e.key==='ArrowRight' || e.key==='d' || e.key==='D') shiftLane(1);
+    if(e.key===' ' && gameOver) startGame();
+    if((e.key==='p' || e.key==='P' || e.key==='Escape') && (running || paused)) togglePause();
+  });
+  document.getElementById('btnLeft').addEventListener('click', ()=>shiftLane(-1));
+  document.getElementById('btnRight').addEventListener('click', ()=>shiftLane(1));
+
+  // ---------- Main loop ----------
+  const clock = new THREE.Clock();
+
+  function animate(){
+    requestAnimationFrame(animate);
+    const dt = Math.min(clock.getDelta(), 0.05);
+
+    // ship lane easing + tilt
+    shipGroup.position.x += (targetX - shipGroup.position.x) * Math.min(dt*10, 1);
+    shipMesh.rotation.z = (targetX - shipGroup.position.x) * -0.6;
+    shipMesh.rotation.y = Math.sin(performance.now()*0.004) * 0.15;
+    glow.material.opacity = 0.14 + Math.sin(performance.now()*0.01)*0.05;
+
+    if(running && !paused){
+      elapsed += dt;
+      speed = baseSpeed + Math.min(elapsed * 0.012, 0.55);
+      score += speed * dt * 20;
+      scoreVal.textContent = String(Math.floor(score)).padStart(4,'0');
+      const speedMult = (speed/baseSpeed);
+      speedVal.textContent = speedMult.toFixed(1) + 'x';
+      speedfill.style.width = Math.min(100, (speedMult-1)*45 + 18) + '%';
+      AudioEngine.setIntensity(speedMult);
+
+      // grid scroll illusion: move grid texture by shifting mesh z and resetting
+      floor.position.z += speed;
+      ceil.position.z += speed;
+      wallL.position.z += speed;
+      wallR.position.z += speed;
+      if(floor.position.z > TUNNEL_LEN/2 + 10){
+        floor.position.z = -TUNNEL_LEN/2 + 10;
+        ceil.position.z = -TUNNEL_LEN/2 + 10;
+        wallL.position.z = -TUNNEL_LEN/2 + 10;
+        wallR.position.z = -TUNNEL_LEN/2 + 10;
+      }
+
+      // spawn
+      spawnTimer += dt;
+      spawnInterval = Math.max(0.55, 1.1 - elapsed*0.01);
+      if(spawnTimer > spawnInterval){
+        spawnTimer = 0;
+        spawnRow();
+      }
+
+      // move obstacles/orbs
+      const playerZ = shipGroup.position.z;
+      for(let i=obstacles.length-1;i>=0;i--){
+        const o = obstacles[i];
+        o.position.z += speed;
+        o.rotation.x += dt*0.6;
+        o.rotation.y += dt*0.4;
+        if(o.position.z > 9){
+          scene.remove(o);
+          obstacles.splice(i,1);
+          continue;
+        }
+        if(Math.abs(o.position.z - playerZ) < 0.55 && Math.abs(o.position.x - shipGroup.position.x) < 0.9){
+          scene.remove(o);
+          obstacles.splice(i,1);
+          endGame();
+        }
+      }
+      for(let i=orbs.length-1;i>=0;i--){
+        const o = orbs[i];
+        o.position.z += speed;
+        o.rotation.y += dt*2;
+        o.position.y = 1.1 + Math.sin(performance.now()*0.006 + i)*0.15;
+        if(o.position.z > 9){
+          scene.remove(o);
+          orbs.splice(i,1);
+          continue;
+        }
+        if(Math.abs(o.position.z - playerZ) < 0.55 && Math.abs(o.position.x - shipGroup.position.x) < 0.7){
+          scene.remove(o);
+          orbs.splice(i,1);
+          score += 40;
+          AudioEngine.playCollect();
+        }
+      }
+
+      // trail update
+      trailHistory.unshift(shipGroup.position.clone());
+      if(trailHistory.length > TRAIL_COUNT) trailHistory.pop();
+      const posAttr = trail.geometry.attributes.position;
+      for(let i=0;i<TRAIL_COUNT;i++){
+        const p = trailHistory[i] || shipGroup.position;
+        posAttr.array[i*3] = p.x;
+        posAttr.array[i*3+1] = p.y - 0.15;
+        posAttr.array[i*3+2] = p.z + i*0.05;
+      }
+      posAttr.needsUpdate = true;
+    }
+
+    // camera shake on death
+    let camOffX = 0, camOffY = 0;
+    if(shakeT > 0){
+      shakeT -= dt;
+      camOffX = (Math.random()-0.5) * shakeT * 1.2;
+      camOffY = (Math.random()-0.5) * shakeT * 1.2;
+    }
+    camera.position.set(camOffX, 2.6 + camOffY, 7);
+    camera.lookAt(0, 1.2, -20);
+
+    sun.material.rotation += dt*0.02;
+    magentaLight.intensity = 2.5 + Math.sin(performance.now()*0.003)*0.6;
+    cyanLight.intensity = 2.5 + Math.cos(performance.now()*0.003)*0.6;
+
+    renderer.render(scene, camera);
+  }
+  animate();
+})();
+</script>
+<script>
+  if('serviceWorker' in navigator){
+    window.addEventListener('load', ()=>{
+      navigator.serviceWorker.register('sw.js').catch(()=>{});
+    });
+  }
+</script>
+</body>
+</html>
