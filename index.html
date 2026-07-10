@@ -578,4 +578,241 @@ const AudioEngine = (function(){
   let spawnInterval = 1.1;
 
   function spawnRow(){
-    // pick pattern: 1 or 2 obstacles blocking la
+    // pick pattern: 1 or 2 obstacles blocking lanes, leave at least 1 open
+    const blockedCount = Math.random() < 0.5 ? 1 : 2;
+    const laneIdxs = [0,1,2];
+    for(let i=laneIdxs.length-1;i>0;i--){
+      const j = Math.floor(Math.random()*(i+1));
+      [laneIdxs[i], laneIdxs[j]] = [laneIdxs[j], laneIdxs[i]];
+    }
+    const blocked = laneIdxs.slice(0, blockedCount);
+    const open = laneIdxs.slice(blockedCount);
+
+    blocked.forEach(li=>{
+      const m = new THREE.Mesh(obstacleGeo, obstacleMat);
+      m.position.set(LANES[li], 1.1, -60);
+      scene.add(m);
+      obstacles.push(m);
+    });
+    // chance to place an orb in an open lane
+    if(open.length && Math.random() < 0.65){
+      const li = open[Math.floor(Math.random()*open.length)];
+      const o = new THREE.Mesh(orbGeo, orbMat);
+      o.position.set(LANES[li], 1.1, -60);
+      scene.add(o);
+      orbs.push(o);
+    }
+  }
+
+  function resetGame(){
+    obstacles.forEach(o=>scene.remove(o));
+    orbs.forEach(o=>scene.remove(o));
+    obstacles.length = 0;
+    orbs.length = 0;
+    laneIndex = 1;
+    targetX = LANES[laneIndex];
+    shipGroup.position.x = targetX;
+    score = 0;
+    speed = baseSpeed;
+    elapsed = 0;
+    spawnTimer = 0;
+    spawnInterval = 1.1;
+    trailHistory = [];
+  }
+
+  function startGame(){
+    resetGame();
+    running = true;
+    gameOver = false;
+    paused = false;
+    startScreen.classList.add('hidden');
+    gameOverScreen.classList.add('hidden');
+    pauseScreen.classList.add('hidden');
+    AudioEngine.startMusic();
+  }
+
+  function endGame(){
+    running = false;
+    gameOver = true;
+    AudioEngine.playCrash();
+    AudioEngine.stopMusic();
+    const finalDist = Math.floor(score);
+    finalscore.textContent = 'DISTANCE: ' + String(finalDist).padStart(4,'0');
+    if(finalDist > highScore){
+      highScore = finalDist;
+      try { localStorage.setItem('voidrunner_highscore', String(highScore)); } catch(e){}
+    }
+    refreshBest();
+    gameOverScreen.classList.remove('hidden');
+    shakeT = 0.5;
+    flash.style.transition = 'none';
+    flash.style.opacity = '0.55';
+    requestAnimationFrame(()=>{
+      flash.style.transition = 'opacity 0.5s ease';
+      flash.style.opacity = '0';
+    });
+  }
+
+  function togglePause(){
+    if(!running && !paused) return;
+    paused = !paused;
+    if(paused){
+      pauseScreen.classList.remove('hidden');
+      pauseBtn.textContent = '▶';
+    } else {
+      pauseScreen.classList.add('hidden');
+      pauseBtn.textContent = '⏸';
+    }
+  }
+  pauseBtn.addEventListener('click', togglePause);
+  document.getElementById('resumeBtn').addEventListener('click', togglePause);
+  document.addEventListener('visibilitychange', ()=>{
+    if(document.hidden && running && !paused) togglePause();
+  });
+
+  let isMuted = false;
+  muteBtn.addEventListener('click', ()=>{
+    isMuted = AudioEngine.toggleMute();
+    muteBtn.textContent = isMuted ? '🔇' : '🔊';
+    muteBtn.classList.toggle('off', isMuted);
+  });
+
+  document.getElementById('startBtn').addEventListener('click', startGame);
+  document.getElementById('restartBtn').addEventListener('click', startGame);
+
+  function shiftLane(dir){
+    if(!running || paused) return;
+    const newLane = Math.max(0, Math.min(2, laneIndex+dir));
+    if(newLane !== laneIndex) AudioEngine.playSwitch();
+    laneIndex = newLane;
+    targetX = LANES[laneIndex];
+  }
+  window.addEventListener('keydown', (e)=>{
+    if(e.key==='ArrowLeft' || e.key==='a' || e.key==='A') shiftLane(-1);
+    if(e.key==='ArrowRight' || e.key==='d' || e.key==='D') shiftLane(1);
+    if(e.key===' ' && gameOver) startGame();
+    if((e.key==='p' || e.key==='P' || e.key==='Escape') && (running || paused)) togglePause();
+  });
+  document.getElementById('btnLeft').addEventListener('click', ()=>shiftLane(-1));
+  document.getElementById('btnRight').addEventListener('click', ()=>shiftLane(1));
+
+  // ---------- Main loop ----------
+  const clock = new THREE.Clock();
+
+  function animate(){
+    requestAnimationFrame(animate);
+    const dt = Math.min(clock.getDelta(), 0.05);
+
+    // ship lane easing + tilt
+    shipGroup.position.x += (targetX - shipGroup.position.x) * Math.min(dt*10, 1);
+    shipMesh.rotation.z = (targetX - shipGroup.position.x) * -0.6;
+    shipMesh.rotation.y = Math.sin(performance.now()*0.004) * 0.15;
+    glow.material.opacity = 0.14 + Math.sin(performance.now()*0.01)*0.05;
+
+    if(running && !paused){
+      elapsed += dt;
+      speed = baseSpeed + Math.min(elapsed * 0.012, 0.55);
+      score += speed * dt * 20;
+      scoreVal.textContent = String(Math.floor(score)).padStart(4,'0');
+      const speedMult = (speed/baseSpeed);
+      speedVal.textContent = speedMult.toFixed(1) + 'x';
+      speedfill.style.width = Math.min(100, (speedMult-1)*45 + 18) + '%';
+      AudioEngine.setIntensity(speedMult);
+
+      // grid scroll illusion: move grid texture by shifting mesh z and resetting
+      floor.position.z += speed;
+      ceil.position.z += speed;
+      wallL.position.z += speed;
+      wallR.position.z += speed;
+      if(floor.position.z > TUNNEL_LEN/2 + 10){
+        floor.position.z = -TUNNEL_LEN/2 + 10;
+        ceil.position.z = -TUNNEL_LEN/2 + 10;
+        wallL.position.z = -TUNNEL_LEN/2 + 10;
+        wallR.position.z = -TUNNEL_LEN/2 + 10;
+      }
+
+      // spawn
+      spawnTimer += dt;
+      spawnInterval = Math.max(0.55, 1.1 - elapsed*0.01);
+      if(spawnTimer > spawnInterval){
+        spawnTimer = 0;
+        spawnRow();
+      }
+
+      // move obstacles/orbs
+      const playerZ = shipGroup.position.z;
+      for(let i=obstacles.length-1;i>=0;i--){
+        const o = obstacles[i];
+        o.position.z += speed;
+        o.rotation.x += dt*0.6;
+        o.rotation.y += dt*0.4;
+        if(o.position.z > 9){
+          scene.remove(o);
+          obstacles.splice(i,1);
+          continue;
+        }
+        if(Math.abs(o.position.z - playerZ) < 0.55 && Math.abs(o.position.x - shipGroup.position.x) < 0.9){
+          scene.remove(o);
+          obstacles.splice(i,1);
+          endGame();
+        }
+      }
+      for(let i=orbs.length-1;i>=0;i--){
+        const o = orbs[i];
+        o.position.z += speed;
+        o.rotation.y += dt*2;
+        o.position.y = 1.1 + Math.sin(performance.now()*0.006 + i)*0.15;
+        if(o.position.z > 9){
+          scene.remove(o);
+          orbs.splice(i,1);
+          continue;
+        }
+        if(Math.abs(o.position.z - playerZ) < 0.55 && Math.abs(o.position.x - shipGroup.position.x) < 0.7){
+          scene.remove(o);
+          orbs.splice(i,1);
+          score += 40;
+          AudioEngine.playCollect();
+        }
+      }
+
+      // trail update
+      trailHistory.unshift(shipGroup.position.clone());
+      if(trailHistory.length > TRAIL_COUNT) trailHistory.pop();
+      const posAttr = trail.geometry.attributes.position;
+      for(let i=0;i<TRAIL_COUNT;i++){
+        const p = trailHistory[i] || shipGroup.position;
+        posAttr.array[i*3] = p.x;
+        posAttr.array[i*3+1] = p.y - 0.15;
+        posAttr.array[i*3+2] = p.z + i*0.05;
+      }
+      posAttr.needsUpdate = true;
+    }
+
+    // camera shake on death
+    let camOffX = 0, camOffY = 0;
+    if(shakeT > 0){
+      shakeT -= dt;
+      camOffX = (Math.random()-0.5) * shakeT * 1.2;
+      camOffY = (Math.random()-0.5) * shakeT * 1.2;
+    }
+    camera.position.set(camOffX, 2.6 + camOffY, 7);
+    camera.lookAt(0, 1.2, -20);
+
+    sun.material.rotation += dt*0.02;
+    magentaLight.intensity = 2.5 + Math.sin(performance.now()*0.003)*0.6;
+    cyanLight.intensity = 2.5 + Math.cos(performance.now()*0.003)*0.6;
+
+    renderer.render(scene, camera);
+  }
+  animate();
+})();
+</script>
+<script>
+  if('serviceWorker' in navigator){
+    window.addEventListener('load', ()=>{
+      navigator.serviceWorker.register('sw.js').catch(()=>{});
+    });
+  }
+</script>
+</body>
+</html>
